@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+
+const path = require('path');
+const csv = require('csv-parser');
+const fs = require('fs');
+
+const { User } = require('./src/model/user.model');
+const { Project } = require('./src/model/project.model');
+
+const { ScoreService } = require('./src/service/score.service');
+const { DistanceService } = require('./src/service/distance.service');
+
+const cwd = process.cwd();
+
+var projectFile = path.join(cwd, process.argv[2]);
+var usersFile = path.join(cwd, process.argv[3]);
+
+function loadCsv (filepath) {
+	return new Promise((next, fail) => {
+		var results = [];
+		fs.createReadStream(usersFile)
+			.pipe(csv())
+			.on('data', results.push.bind(results))
+			.on('end', () => next(results))
+			.on('error', fail);
+
+	});
+}
+
+function loadJson (filepath) {
+	return new Promise((next, fail) => {
+		fs.readFile(filepath, (err, data) => {
+			if (err) {
+				return fail(err);
+			}
+			var result;
+			try {
+				result = JSON.parse(data);
+			} catch (e) {
+				return fail(e);
+			}
+			return next(result);
+		});
+	});
+}
+
+
+
+Promise
+	.all([
+		loadJson(projectFile),
+		loadCsv(usersFile)
+	])
+	.then(([projectData, usersData]) => {
+		var project = Project.fromJson(projectData),
+			users = usersData.map(User.fromCsv);
+
+
+		users
+			.map(user => ({
+				user,
+				score: ScoreService.getUserScoreForProject(project, user),
+				// recalculating distance here, but it makes for cleaner code.
+				// could be optimized if necessary
+				distance: DistanceService.getUserDistanceFromProject(project, user)
+			}))
+			.sort((a, b) => b.score - a.score)
+			.forEach(({ user, distance, score }) => {
+				console.log(user.firstName, distance, score);
+			});
+
+	});
+
